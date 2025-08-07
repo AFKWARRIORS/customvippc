@@ -1,1 +1,625 @@
+-- Carregamento feito com sucesso. Bom jogo!
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--[[
+    Discord Webhook Automático para vBot OTC Tibia
+    ==============================================
+    
+    Propósito: Enviar notificações automáticas do status do personagem para o Discord
+    Última modificação: 2024-12-19
+    Autor: vBot Team
+    
+    Funcionalidades AUTOMÁTICAS:
+    - Status periódico (a cada 5 minutos)
+    - Level Up (detecção automática)
+    - Morte (detecção automática)
+]]
+
+-- Configuração do webhook
+local webhook = "https://discord.com/api/webhooks/1401959409629794446/-Od_PcPquwDmGds1XEggqD53REtxIKgTCsFbHAfSYN8kubqLDCDiarjaIp9pV0cNzDDk"
+
+-- Dados padrão do bot
+local default_data = {
+    username = "vBot Status",
+}
+
+-- Configuração do embed
+local embed = {
+    color = 10038562, -- Cor vermelha
+    footer = {
+        text = "SouleStatus by Soule Scripts | discord.gg/bwZjeMddNZ",
+    },
+}
+
+-- Cache de timestamps para controle de cooldown
+local discordTimes = {}
+
+-- Variáveis para controle automático
+local lastLevel = 0
+local lastHP = 100
+local isDead = false
+local levelStartTime = 0 -- Tempo quando começou o level atual
+local levelHistory = {} -- Histórico de tempos de level up
+
+-- Função de callback para resultado HTTP
+function onHTTPResult(data, err)
+    if err then
+        print("Discord Webhook Error: " .. err)
+    else
+        print("Discord Webhook: Mensagem enviada com sucesso!")
+    end
+end
+
+-- Função principal para enviar webhook
+function sendDiscordWebhook(data)
+    local id = data.id
+    if id then
+        local dTime = discordTimes[id]
+        if dTime and os.time() < dTime then 
+            return 
+        end
+        discordTimes[id] = os.time() + (data.delayed and data.delayed or 10)
+    end
+
+    -- Adicionar horário de envio à mensagem
+    local messageWithTime = data.message
+    if not messageWithTime:find("Horário:") then
+        messageWithTime = messageWithTime .. " | Horário: " .. getCurrentTime()
+    end
+
+    local dEmbed = embed
+    if data.color then 
+        dEmbed.color = data.color 
+    end
+    
+    dEmbed.title = "**" .. data.title .. "**"
+    dEmbed.fields = {
+        {
+            name = "Nome: ",
+            value = data.name,
+        },
+        {
+            name = "Mensagem",
+            value = messageWithTime,
+        }
+    }
+
+    local dataSend = default_data
+    dataSend.embeds = { dEmbed }
+    
+    HTTP.postJSON(webhook, dataSend, onHTTPResult)
+end
+
+-- Função para formatar posição
+function formatPosition(pos)
+    if not pos then return "Desconhecida" end
+    return string.format("X: %d, Y: %d, Z: %d", pos.x, pos.y, pos.z)
+end
+
+-- Função para obter informações do servidor
+function getServerInfo()
+    local worldName = g_game.getWorldName()
+    
+    if worldName then
+        return worldName
+    else
+        return "Desconhecido"
+    end
+end
+
+-- Função para obter stamina atual
+function getStaminaInfo()
+    local stamina = g_game.getLocalPlayer():getStamina()
+    if stamina then
+        -- Converter minutos para horas
+        local hours = math.floor(stamina / 60)
+        local minutes = stamina % 60
+        
+        -- Se menos de 1 hora, mostrar apenas minutos
+        if hours == 0 then
+            return string.format("%dm", minutes)
+        else
+            return string.format("%dh %dm", hours, minutes)
+        end
+    else
+        return "N/A"
+    end
+end
+
+-- Função para formatar tempo em formato legível
+function formatTime(seconds)
+    if seconds < 60 then
+        return string.format("%ds", seconds)
+    elseif seconds < 3600 then
+        local minutes = math.floor(seconds / 60)
+        local secs = seconds % 60
+        return string.format("%dm %ds", minutes, secs)
+    else
+        local hours = math.floor(seconds / 3600)
+        local minutes = math.floor((seconds % 3600) / 60)
+        return string.format("%dh %dm", hours, minutes)
+    end
+end
+
+-- Função para calcular tempo médio de level up
+function calculateAverageLevelTime()
+    if #levelHistory == 0 then return 0 end
+    
+    local totalTime = 0
+    for _, entry in ipairs(levelHistory) do
+        totalTime = totalTime + entry.time
+    end
+    
+    return math.floor(totalTime / #levelHistory)
+end
+
+-- Função para obter horário atual formatado
+function getCurrentTime()
+    local time = os.date("*t")
+    return string.format("%02d:%02d:%02d", time.hour, time.min, time.sec)
+end
+
+-- MACRO 1: Status periódico automático (a cada 10 minutos)
+macro(600000, function() -- Executa a cada 10 minutos
+    local player = g_game.getLocalPlayer()
+    if not player then return end
+    
+    -- Verificar status do CaveBot
+    local cavebotStatus = "❌ Inativo"
+    if CaveBot.isOn() then
+        cavebotStatus = "✅ Ativo"
+    end
+    
+    -- Verificar status do Target
+    local targetStatus = "❌ Inativo"
+    if TargetBot.isOn() then
+        targetStatus = "✅ Ativo"
+    end
+    
+    -- Verificar se está em área PZ usando função isInPz()
+    local pzStatus = "❌ PZ"
+    if isInPz() then
+        pzStatus = "✅ PZ"
+    end
+    
+
+    
+    -- Calcular tempo médio de level up
+    local avgLevelTime = "N/A"
+    if #levelHistory > 0 then
+        local avgSeconds = calculateAverageLevelTime()
+        avgLevelTime = formatTime(avgSeconds)
+    end
+    
+    local data = {
+        title = 'Status do Personagem',
+        name = player:getName(),
+        message = string.format('**📊 Informações Gerais:**\n• Level: %d\n• Servidor: %s\n• Posição: %s\n• Stamina: %s\n\n**🤖 Status dos Bots:**\n• CaveBot: %s\n• Target: %s\n• PZ: %s\n\n**⏱️ Estatísticas:**\n• Tempo médio level: %s', 
+            player:getLevel(),
+            getServerInfo(),
+            formatPosition(player:getPosition()),
+            getStaminaInfo(),
+            cavebotStatus,
+            targetStatus,
+            pzStatus,
+            avgLevelTime),
+        id = "status",
+        delayed = 600, -- 10 minutos
+        color = 0x0099FF -- Azul
+    }
+    sendDiscordWebhook(data)
+end)
+
+-- MACRO 2: Detecção automática de Level Up
+macro(1000, function() -- Executa a cada 1 segundo
+    local player = g_game.getLocalPlayer()
+    if not player then return end
+    
+    local currentLevel = player:getLevel()
+    
+    -- Se o level aumentou
+    if currentLevel > lastLevel and lastLevel > 0 then
+        -- Calcular tempo do level up
+        local currentTime = os.time()
+        local timeToLevel = currentTime - levelStartTime
+        local timeToLevelFormatted = formatTime(timeToLevel)
+        
+        -- Calcular estimativa para próximo level
+        local nextLevelEstimate = ""
+        if #levelHistory > 0 then
+            local avgTime = calculateAverageLevelTime()
+            local nextLevelTime = currentTime + avgTime
+            nextLevelEstimate = string.format(" | Próximo level estimado: %s", formatTime(avgTime))
+        end
+        
+        -- Adicionar ao histórico
+        table.insert(levelHistory, {level = lastLevel, time = timeToLevel})
+        if #levelHistory > 5 then -- Manter apenas os últimos 5 levels
+            table.remove(levelHistory, 1)
+        end
+        
+        local data = {
+            title = 'Level Up!',
+            name = player:getName(),
+            message = string.format('**🎉 Parabéns! Você chegou ao level %d!**\n\n**📊 Detalhes:**\n• Servidor: %s\n• Tempo para level: %s%s', 
+                currentLevel, getServerInfo(), timeToLevelFormatted, nextLevelEstimate),
+            id = "level_up",
+            delayed = 0, -- Sem delay para level up
+            color = 0x00FF00 -- Verde
+        }
+        sendDiscordWebhook(data)
+        
+        -- Iniciar contagem para o próximo level
+        levelStartTime = currentTime
+    end
+    
+    lastLevel = currentLevel
+end)
+
+-- Variáveis para capturar informações da morte
+local lastAttacker = nil
+local lastAttackTime = 0
+local recentAttackers = {} -- Lista dos últimos atacantes do server log
+local serverLogBuffer = {} -- Buffer das últimas 10 linhas do server log
+
+-- Callback para capturar danos do server log
+onTextMessage(function(mode, text)
+    if mode == 22 then -- Server log
+        -- DEBUG: Log todas as mensagens do server log
+        print("DEBUG Server Log: " .. text)
+        
+        -- Adicionar ao buffer das últimas 10 linhas
+        table.insert(serverLogBuffer, text)
+        if #serverLogBuffer > 10 then
+            table.remove(serverLogBuffer, 1) -- Remove a linha mais antiga
+        end
+        
+        -- Capturar mensagens de dano
+        local damage, attackerName = text:match("You lose (%d+) hitpoints due to an attack by ([^.]+)")
+        if attackerName then
+            print("DEBUG: Capturou ataque - Dano: " .. damage .. " | Atacante: " .. attackerName)
+            
+            -- Adicionar à lista de atacantes recentes
+            table.insert(recentAttackers, {name = attackerName, time = os.time(), damage = tonumber(damage)})
+            
+            -- Manter apenas os últimos 5 segundos (janela menor para ser mais preciso)
+            local currentTime = os.time()
+            for i = #recentAttackers, 1, -1 do
+                if currentTime - recentAttackers[i].time > 5 then
+                    table.remove(recentAttackers, i)
+                end
+            end
+            
+            print("DEBUG: Total de atacantes recentes: " .. #recentAttackers)
+        end
+        
+
+    end
+end)
+
+-- MACRO 3: Detecção automática de morte
+macro(1000, function() -- Executa a cada 1 segundo
+    local player = g_game.getLocalPlayer()
+    if not player then return end
+    
+    local currentHP = player:getHealthPercent()
+    
+    -- Se HP chegou a 0 (morte)
+    if currentHP == 0 and not isDead then
+        isDead = true
+        
+        -- Determinar causa da morte baseada no server log
+        local deathCause = "Desconhecida"
+        
+        print("DEBUG: Morte detectada! Total de atacantes recentes: " .. #recentAttackers)
+        print("DEBUG: Últimas 10 linhas do server log:")
+        for i, line in ipairs(serverLogBuffer) do
+            print("DEBUG: " .. i .. ": " .. line)
+        end
+        
+        -- Nova lógica: Analisar as últimas 10 linhas do server log
+        local lastDamages = {}
+        for i = #serverLogBuffer, 1, -1 do
+            local line = serverLogBuffer[i]
+            local damage, attackerName = line:match("You lose (%d+) hitpoints due to an attack by ([^.]+)")
+            if attackerName then
+                table.insert(lastDamages, {damage = tonumber(damage), attacker = attackerName})
+            end
+        end
+        
+        if #lastDamages > 0 then
+            -- Pegar o último dano (mais recente)
+            local lastDamage = lastDamages[1] -- Primeiro da lista (mais recente)
+            deathCause = lastDamage.attacker
+            
+            if #lastDamages > 1 then
+                deathCause = lastDamage.attacker .. " (último dano)"
+            end
+        else
+            -- Fallback: verificar criaturas próximas se não houver dados do server log
+            local nearbyCreatures = {}
+            for _, creature in ipairs(getSpectators()) do
+                if (creature:isMonster() or creature:isPlayer()) and creature ~= player and getDistanceBetween(player:getPosition(), creature:getPosition()) <= 3 then
+                    table.insert(nearbyCreatures, creature:getName())
+                end
+            end
+            
+            if #nearbyCreatures == 1 then
+                deathCause = nearbyCreatures[1]
+            elseif #nearbyCreatures > 1 then
+                deathCause = nearbyCreatures[1] .. " (+" .. (#nearbyCreatures - 1) .. " outros)"
+            end
+        end
+        
+        local data = {
+            title = 'Personagem Morreu!',
+            name = player:getName(),
+            message = string.format('**💀 Personagem Morreu!**\n\n**📊 Informações:**\n• Level: %d\n• Servidor: %s\n• Posição: %s\n• Morto por: %s', 
+                player:getLevel(), 
+                getServerInfo(),
+                formatPosition(player:getPosition()),
+                deathCause),
+            id = "death",
+            delayed = 300, -- 5 minutos
+            color = 0xFF0000 -- Vermelho
+        }
+        sendDiscordWebhook(data)
+    end
+    
+    -- Se HP voltou a subir (ressuscitou)
+    if currentHP > 0 and isDead then
+        isDead = false
+        recentAttackers = {} -- Limpar lista de atacantes
+        -- NÃO reiniciar levelStartTime - manter contagem do level atual
+    end
+    
+    lastHP = currentHP
+end)
+
+-- Variável para controlar se já foi inicializado
+local systemInitialized = false
+
+-- MACRO 4: Inicialização (primeiro status)
+macro(5000, function() -- Executa após 5 segundos
+    local player = g_game.getLocalPlayer()
+    if not player then return end
+    
+    -- Verificar se já foi inicializado
+    if systemInitialized then return end
+    
+    -- Definir level inicial
+    lastLevel = player:getLevel()
+    levelStartTime = os.time() -- Iniciar contagem do level atual
+    
+    -- Enviar primeiro status
+    local data = {
+        title = 'Sistema Iniciado',
+        name = player:getName(),
+        message = string.format('**🚀 Sistema SouleStatus Iniciado!**\n\n**📊 Informações:**\n• Level: %d\n• Servidor: %s\n• Sistema automático ativo!', 
+            player:getLevel(), getServerInfo()),
+        id = "init",
+        delayed = 0,
+        color = 0x0099FF -- Azul
+    }
+    sendDiscordWebhook(data)
+    
+    -- Marcar como inicializado
+    systemInitialized = true
+end)
+
+-- Interface do usuário (apenas informativa)
+UI.Separator()
+UI.Label("SouleStatus Discord ON")
+UI.Separator()
+
+
+print("SouleStatus Discord: Sistema ativo!") 
