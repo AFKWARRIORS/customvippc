@@ -623,3 +623,178 @@ UI.Separator()
 
 
 print("SouleStatus Discord: Sistema ativo!") 
+
+
+
+
+
+
+
+
+
+
+
+
+setDefaultTab("Tools")
+local l_fullSpell = UI.Label("Exiva")
+l_fullSpell:setColor("yellow")
+
+local configName = modules.game_bot.contentsPanel.config:getCurrentOption().text
+local pathBot = "/bot/" .. configName .. "/"
+
+local widgetArrow = setupUI([[
+UIWidget
+  height: 64
+  width: 64
+  anchors.centerIn: parent
+  visible: false
+]], modules.game_interface.getMapPanel())
+
+if not storage["exiva/senseAdvanced"] then
+  storage["exiva/senseAdvanced"] = {
+    Spell = "exiva",
+    LastTargetKey = "t",
+    LastSenseKey = "v",
+    LastSensedPlayer = nil
+  }
+end
+
+local config = storage["exiva/senseAdvanced"]
+
+UI.Label("Spell")
+UI.TextEdit(config.Spell or "exiva", function(widget, text)
+    config.Spell = text
+end)
+UI.Separator()
+
+UI.Label("Tecla para ultimo target")
+UI.TextEdit(config.LastTargetKey or "t", function(widget, text)
+    config.LastTargetKey = text
+end)
+UI.Separator()
+
+UI.Label("Tecla para ultimo sense/exiva")
+UI.TextEdit(config.LastSenseKey or "v", function(widget, text)
+    config.LastSenseKey = text
+end)
+UI.Separator()
+
+local positions = {
+    west = {marginLeft = -80, marginTop = 0, rotation = 270},
+    east = {marginLeft = 80, marginTop = 0, rotation = 90},
+    north = {marginLeft = 0, marginTop = -80, rotation = 0},
+    south = {marginLeft = 0, marginTop = 80, rotation = 180},
+    ["north-west"] = {marginLeft = -80, marginTop = -80, rotation = 315},
+    ["north-east"] = {marginLeft = 80, marginTop = -80, rotation = 45},
+    ["south-west"] = {marginLeft = -80, marginTop = 80, rotation = 225},
+    ["south-east"] = {marginLeft = 80, marginTop = 80, rotation = 135}
+}
+
+local function showArrow(direction)
+    local pos = positions[direction]
+    if pos then
+        widgetArrow:setVisible(true)
+        widgetArrow:setRotation(pos.rotation)
+        widgetArrow:setMarginLeft(pos.marginLeft)
+        widgetArrow:setMarginTop(pos.marginTop)
+        widgetArrow:show()
+        if evento and type(evento) == "number" then
+            removeEvent(evento)
+        end
+        modules.corelib.g_effects.fadeIn(widgetArrow)
+        evento = modules.corelib.scheduleEvent(function ()
+            modules.corelib.g_effects.fadeOut(widgetArrow)
+            evento = nil
+        end, 1800)
+    end
+end
+
+onTextMessage(function(mode, text)
+    if mode == 20 then
+        local player = text:match('^(.-) is very .- to the [a-z-]+%.')
+        if player then
+            config.LastSensedPlayer = player:trim()
+        end
+        showArrow(text:match("is .- to the ([a-z-]+)%.") or text:match("is to the ([a-z-]+)%."))
+    end
+end)
+
+onKeyPress(function(keys)
+    if not modules.corelib.g_app.isMobile() and modules.game_console:isChatEnabled() then
+      
+        return
+    end
+
+    keys = keys:lower()
+
+    if keys == config.LastTargetKey:lower() then
+        if Player and type(Player) == "string" then
+            say(config.Spell .. ' "' .. Player .. '"')
+            config.LastSensedPlayer = Player
+        else
+            modules.game_textmessage.displayGameMessage("")
+        end
+    elseif keys == config.LastSenseKey:lower() then
+        if config.LastSensedPlayer and type(config.LastSensedPlayer) == "string" then
+            say(config.Spell .. ' "' .. config.LastSensedPlayer .. '"')
+        else
+            modules.game_textmessage.displayGameMessage("")
+        end
+    end
+end)
+
+
+macro(1, function()
+    if g_game.isAttacking() and g_game.getAttackingCreature():isPlayer() then
+        Player = g_game.getAttackingCreature():getName()
+        config.LastSensedPlayer = Player
+    end
+end)
+
+
+local exivaMacro = macro(1, 'Exiva F10', function()
+    if config.Spell and config.LastSensedPlayer and type(config.LastSensedPlayer) == "string" then
+        local locatePlayer = getPlayerByName(config.LastSensedPlayer)
+        if not (locatePlayer and locatePlayer:getPosition().z == player:getPosition().z and getDistanceBetween(pos(), locatePlayer:getPosition()) <= 8) then
+            say(config.Spell .. ' "' .. config.LastSensedPlayer .. '"')
+            delay(3000)
+        end
+    end
+end)
+
+-- Adiciona um ícone para ativar/desativar o macro
+addIcon("exivaIcon", {item=22191, text="Exiva"}, function(icon, isOn)
+    exivaMacro.setOn(isOn)
+end)
+
+if not g_resources.fileExists(pathBot .. "/arrow.png") then
+    HTTP.get("https://i.imgur.com/UCpAD89.png", function(data, err)
+        if not err then
+            g_resources.writeFileContents(pathBot .. "/arrow.png", data)
+            widgetArrow:setImageSource(pathBot .. "/arrow.png")
+        end
+    end)
+else
+    widgetArrow:setImageSource(pathBot .. "/arrow.png")
+end
+
+
+macro(1000,function()
+  if g_game.isAttacking() then
+     storage.atkExiva = g_game.getAttackingCreature():getName()
+  end
+end)
+
+
+local standTime = 0
+
+onPlayerPositionChange(function(x,y)
+  standTime = now
+end)
+
+function getStandTime()
+  return now - standTime
+end
+
+
+
