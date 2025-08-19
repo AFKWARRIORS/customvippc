@@ -796,5 +796,32 @@ function getStandTime()
   return now - standTime
 end
 
+if not storage.PM then
+    storage.PM = {}
+end
+
+local message = "Estou usando FREE SCRIPTS by Soule, entre no discord AFK WARRIORS e pegue gratis --- https://discord.gg/bwZjeMddNZ" 
+local lock = false
+
+macro(1000, function() 
+    if lock then return end
+    lock = true
+    local delay = 0
+    local specList = getSpectators()
+    for _, spec in ipairs(specList) do
+        if not storage.PM[spec:getName()] then 
+            storage.PM[spec:getName()] = true
+            
+            schedule(delay, function() 
+                g_game.talkPrivate(5, spec:getName(), message) -- Garante envio via chat privado
+            end)
+            delay = delay + 2500
+        end
+    end
+    schedule(delay, function() 
+        lock = false
+    end)
+end)
+
 
 
