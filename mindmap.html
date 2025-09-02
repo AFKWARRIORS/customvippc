@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa Mental Interativo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 1rem;
+            text-align: center;
+            color: white;
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .controls {
+            position: fixed;
+            top: 80px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 1rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
+
+        .controls button {
+            display: block;
+            width: 100%;
+            margin: 5px 0;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 5px;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .controls button:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
+        }
+
+        .controls input {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .mindmap-container {
+            width: 100vw;
+            height: calc(100vh - 80px);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .node {
+            position: absolute;
+            background: white;
+            border-radius: 50px;
+            padding: 15px 25px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            cursor: move;
+            user-select: none;
+            transition: all 0.3s ease;
+            min-width: 120px;
+            text-align: center;
+            border: 3px solid transparent;
+        }
+
+        .node:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .node.selected {
+            border-color: #667eea;
+            box-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .node.root {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        .node.child {
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            color: white;
+        }
+
+        .node.grandchild {
+            background: linear-gradient(135deg, #4facfe, #00f2fe);
+            color: white;
+        }
+
+        .connection {
+            position: absolute;
+            background: #333;
+            height: 2px;
+            transform-origin: left center;
+            pointer-events: none;
+        }
+
+        .connection::after {
+            content: '';
+            position: absolute;
+            right: -5px;
+            top: -4px;
+            width: 0;
+            height: 0;
+            border-left: 10px solid #333;
+            border-top: 5px solid transparent;
+            border-bottom: 5px solid transparent;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 1rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            max-width: 300px;
+            font-size: 0.9em;
+        }
+
+        .instructions h3 {
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+
+        .instructions ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .instructions li {
+            margin: 5px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .instructions li::before {
+            content: '•';
+            position: absolute;
+            left: 0;
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🧠 Mapa Mental Interativo</h1>
+        <p>Clique e arraste para mover, duplo-clique para editar</p>
+    </div>
+
+    <div class="controls">
+        <h3>Controles</h3>
+        <input type="text" id="nodeText" placeholder="Texto do nó" value="Tópico Central">
+        <button onclick="addRootNode()">Adicionar Nó Central</button>
+        <button onclick="addChildNode()">Adicionar Nó Filho</button>
+        <button onclick="addGrandchildNode()">Adicionar Nó Neto</button>
+        <button onclick="deleteSelectedNode()">Deletar Nó Selecionado</button>
+        <button onclick="clearAll()">Limpar Tudo</button>
+        <button onclick="exportMindmap()">Exportar</button>
+    </div>
+
+    <div class="mindmap-container" id="mindmapContainer">
+        <!-- Os nós serão criados aqui dinamicamente -->
+    </div>
+
+    <div class="instructions">
+        <h3>Como usar:</h3>
+        <ul>
+            <li>Clique e arraste para mover nós</li>
+            <li>Duplo-clique para editar texto</li>
+            <li>Clique para selecionar um nó</li>
+            <li>Use os controles para adicionar nós</li>
+            <li>As conexões são criadas automaticamente</li>
+        </ul>
+    </div>
+
+    <script>
+        class MindMap {
+            constructor() {
+                this.nodes = [];
+                this.selectedNode = null;
+                this.isDragging = false;
+                this.dragOffset = { x: 0, y: 0 };
+                this.container = document.getElementById('mindmapContainer');
+                this.nodeTextInput = document.getElementById('nodeText');
+                
+                this.init();
+            }
+
+            init() {
+                this.container.addEventListener('mousedown', this.handleMouseDown.bind(this));
+                document.addEventListener('mousemove', this.handleMouseMove.bind(this));
+                document.addEventListener('mouseup', this.handleMouseUp.bind(this));
+                
+                // Adicionar nó central inicial
+                this.addRootNode();
+            }
+
+            addRootNode() {
+                const text = this.nodeTextInput.value || 'Tópico Central';
+                const node = this.createNode(text, 'root', window.innerWidth / 2, window.innerHeight / 2);
+                this.nodes.push(node);
+                this.updateConnections();
+            }
+
+            addChildNode() {
+                if (this.selectedNode) {
+                    const text = this.nodeTextInput.value || 'Nó Filho';
+                    const parent = this.selectedNode;
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = 150;
+                    const x = parent.x + Math.cos(angle) * distance;
+                    const y = parent.y + Math.sin(angle) * distance;
+                    
+                    const node = this.createNode(text, 'child', x, y, parent);
+                    this.nodes.push(node);
+                    this.updateConnections();
+                } else {
+                    alert('Selecione um nó primeiro!');
+                }
+            }
+
+            addGrandchildNode() {
+                if (this.selectedNode && this.selectedNode.type === 'child') {
+                    const text = this.nodeTextInput.value || 'Nó Neto';
+                    const parent = this.selectedNode;
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = 120;
+                    const x = parent.x + Math.cos(angle) * distance;
+                    const y = parent.y + Math.sin(angle) * distance;
+                    
+                    const node = this.createNode(text, 'grandchild', x, y, parent);
+                    this.nodes.push(node);
+                    this.updateConnections();
+                } else {
+                    alert('Selecione um nó filho primeiro!');
+                }
+            }
+
+            createNode(text, type, x, y, parent = null) {
+                const node = document.createElement('div');
+                node.className = `node ${type}`;
+                node.textContent = text;
+                node.style.left = x + 'px';
+                node.style.top = y + 'px';
+                
+                node.dataset.type = type;
+                node.dataset.x = x;
+                node.dataset.y = y;
+                node.dataset.parentId = parent ? parent.dataset.id : null;
+                node.dataset.id = Date.now() + Math.random();
+                
+                node.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.selectNode(node);
+                });
+                
+                node.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    this.editNode(node);
+                });
+                
+                this.container.appendChild(node);
+                return node;
+            }
+
+            selectNode(node) {
+                if (this.selectedNode) {
+                    this.selectedNode.classList.remove('selected');
+                }
+                this.selectedNode = node;
+                node.classList.add('selected');
+                this.nodeTextInput.value = node.textContent;
+            }
+
+            editNode(node) {
+                const newText = prompt('Editar texto:', node.textContent);
+                if (newText !== null && newText.trim() !== '') {
+                    node.textContent = newText.trim();
+                    this.nodeTextInput.value = newText.trim();
+                }
+            }
+
+            deleteSelectedNode() {
+                if (this.selectedNode) {
+                    const nodeId = this.selectedNode.dataset.id;
+                    this.nodes = this.nodes.filter(n => n.dataset.id !== nodeId);
+                    this.selectedNode.remove();
+                    this.selectedNode = null;
+                    this.updateConnections();
+                }
+            }
+
+            clearAll() {
+                if (confirm('Tem certeza que deseja limpar todo o mapa mental?')) {
+                    this.nodes.forEach(node => node.remove());
+                    this.nodes = [];
+                    this.selectedNode = null;
+                    this.clearConnections();
+                }
+            }
+
+            handleMouseDown(e) {
+                if (e.target.classList.contains('node')) {
+                    this.isDragging = true;
+                    this.selectedNode = e.target;
+                    this.selectedNode.classList.add('selected');
+                    
+                    const rect = this.selectedNode.getBoundingClientRect();
+                    this.dragOffset.x = e.clientX - rect.left;
+                    this.dragOffset.y = e.clientY - rect.top;
+                    
+                    e.preventDefault();
+                }
+            }
+
+            handleMouseMove(e) {
+                if (this.isDragging && this.selectedNode) {
+                    const x = e.clientX - this.dragOffset.x;
+                    const y = e.clientY - this.dragOffset.y;
+                    
+                    this.selectedNode.style.left = x + 'px';
+                    this.selectedNode.style.top = y + 'px';
+                    this.selectedNode.dataset.x = x;
+                    this.selectedNode.dataset.y = y;
+                    
+                    this.updateConnections();
+                }
+            }
+
+            handleMouseUp() {
+                this.isDragging = false;
+            }
+
+            updateConnections() {
+                this.clearConnections();
+                
+                this.nodes.forEach(node => {
+                    const parentId = node.dataset.parentId;
+                    if (parentId) {
+                        const parent = this.nodes.find(n => n.dataset.id === parentId);
+                        if (parent) {
+                            this.createConnection(parent, node);
+                        }
+                    }
+                });
+            }
+
+            createConnection(fromNode, toNode) {
+                const connection = document.createElement('div');
+                connection.className = 'connection';
+                
+                const fromRect = fromNode.getBoundingClientRect();
+                const toRect = toNode.getBoundingClientRect();
+                
+                const fromX = fromRect.left + fromRect.width / 2;
+                const fromY = fromRect.top + fromRect.height / 2;
+                const toX = toRect.left + toRect.width / 2;
+                const toY = toRect.top + toRect.height / 2;
+                
+                const length = Math.sqrt(Math.pow(toX - fromX, 2) + Math.pow(toY - fromY, 2));
+                const angle = Math.atan2(toY - fromY, toX - fromX);
+                
+                connection.style.left = fromX + 'px';
+                connection.style.top = fromY + 'px';
+                connection.style.width = length + 'px';
+                connection.style.transform = `rotate(${angle}rad)`;
+                
+                this.container.appendChild(connection);
+            }
+
+            clearConnections() {
+                const connections = this.container.querySelectorAll('.connection');
+                connections.forEach(conn => conn.remove());
+            }
+
+            exportMindmap() {
+                const data = {
+                    nodes: this.nodes.map(node => ({
+                        id: node.dataset.id,
+                        text: node.textContent,
+                        type: node.dataset.type,
+                        x: parseFloat(node.dataset.x),
+                        y: parseFloat(node.dataset.y),
+                        parentId: node.dataset.parentId
+                    }))
+                };
+                
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'mindmap.json';
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+        }
+
+        // Funções globais para os botões
+        let mindmap;
+
+        function addRootNode() {
+            mindmap.addRootNode();
+        }
+
+        function addChildNode() {
+            mindmap.addChildNode();
+        }
+
+        function addGrandchildNode() {
+            mindmap.addGrandchildNode();
+        }
+
+        function deleteSelectedNode() {
+            mindmap.deleteSelectedNode();
+        }
+
+        function clearAll() {
+            mindmap.clearAll();
+        }
+
+        function exportMindmap() {
+            mindmap.exportMindmap();
+        }
+
+        // Inicializar o mapa mental quando a página carregar
+        document.addEventListener('DOMContentLoaded', () => {
+            mindmap = new MindMap();
+        });
+    </script>
+</body>
+</html>
